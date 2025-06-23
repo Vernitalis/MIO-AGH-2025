@@ -1,0 +1,62 @@
+Używane urządzenie: cuda
+           id                                               link  ... hashtags geo
+0  1698308935  https://twitter.com/realDonaldTrump/status/169...  ...      NaN NaN
+1  1701461182  https://twitter.com/realDonaldTrump/status/170...  ...      NaN NaN
+2  1737479987  https://twitter.com/realDonaldTrump/status/173...  ...      NaN NaN
+3  1741160716  https://twitter.com/realDonaldTrump/status/174...  ...      NaN NaN
+4  1773561338  https://twitter.com/realDonaldTrump/status/177...  ...      NaN NaN
+
+[5 rows x 9 columns]
+
+Liczba tweetów w każdej kategorii sentymentu:
+sentiment
+1    23705
+0    17417
+Name: count, dtype: int64
+
+Rozmiar zbioru treningowego: torch.Size([32897, 4000])
+Rozmiar zbioru testowego: torch.Size([8225, 4000])
+
+Rozpoczynanie treningu...
+Epoka 1/15, Strata: 0.3867
+Epoka 2/15, Strata: 0.2549
+Epoka 3/15, Strata: 0.2139
+Epoka 4/15, Strata: 0.1751
+Epoka 5/15, Strata: 0.1432
+Epoka 6/15, Strata: 0.1064
+Epoka 7/15, Strata: 0.0803
+Epoka 8/15, Strata: 0.0606
+Epoka 9/15, Strata: 0.0497
+Epoka 10/15, Strata: 0.0402
+Epoka 11/15, Strata: 0.0325
+Epoka 12/15, Strata: 0.0312
+Epoka 13/15, Strata: 0.0283
+Epoka 14/15, Strata: 0.0267
+Epoka 15/15, Strata: 0.0277
+
+--- Ewaluacja modelu na zbiorze testowym ---
+Dokładność (Accuracy): 0.8807
+
+Raport klasyfikacji:
+               precision    recall  f1-score   support
+
+Negatywny (0)       0.87      0.85      0.86      3484
+Pozytywny (1)       0.89      0.90      0.90      4741
+
+     accuracy                           0.88      8225
+    macro avg       0.88      0.88      0.88      8225
+ weighted avg       0.88      0.88      0.88      8225
+
+
+--- Rozpoczynanie analizy SHAP ---
+
+Obliczanie wartości SHAP (może to potrwać kilka minut)...
+100%|██████████| 50/50 [28:01<00:00, 33.63s/it]
+Obliczanie zakończone.
+<IPython.core.display.HTML object>
+
+Generowanie wykresu podsumowującego SHAP (Summary Plot)...
+Wykres podsumowujący zapisany w 'imgs/SHAP_summary_plot.png'
+
+Generowanie wykresu sił SHAP (Force Plot) dla pierwszej próbki...
+Wykres sił zapisany w 'imgs/force_plot_output.html'

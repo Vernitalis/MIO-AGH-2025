@@ -12,6 +12,7 @@ from torch.utils.data import TensorDataset, DataLoader
 
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import classification_report, accuracy_score
 
 import shap
 import matplotlib.pyplot as plt
@@ -71,11 +72,12 @@ print(df['sentiment'].value_counts())
 X = df['cleaned_content'].values
 y = df['sentiment'].values
 
-# Ograniczamy liczbę cech (słów) do 2000 najczęstszych, aby model był prostszy
-vectorizer = TfidfVectorizer(max_features=2000, stop_words='english')
+vectorizer = TfidfVectorizer(
+    max_features=4000,
+    stop_words='english',
+    ngram_range=(1, 2),
+)
 X_tfidf = vectorizer.fit_transform(X)
-
-# Konwersja macierzy rzadkiej do gęstej dla PyTorch
 X_dense = X_tfidf.toarray()
 
 # Podział na zbiór treningowy i testowy
@@ -95,13 +97,13 @@ print(f"Rozmiar zbioru testowego: {X_test_tensor.shape}")
 class SentimentClassifier(nn.Module):
     def __init__(self, input_dim):
         super(SentimentClassifier, self).__init__()
-        self.layer1 = nn.Linear(input_dim, 128)
+        self.layer1 = nn.Linear(input_dim, 256)
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(0.5)
-        self.layer2 = nn.Linear(128, 64)
+        self.layer2 = nn.Linear(256, 128)
         self.relu2 = nn.ReLU()
         self.dropout2 = nn.Dropout(0.5)
-        self.output_layer = nn.Linear(64, 1)
+        self.output_layer = nn.Linear(128, 1)
 
     def forward(self, x):
         x = self.layer1(x)
@@ -118,14 +120,14 @@ class SentimentClassifier(nn.Module):
 input_dim = X_train_tensor.shape[1]
 model = SentimentClassifier(input_dim).to(device)
 criterion = nn.BCEWithLogitsLoss()  # Lepsza stabilność numeryczna niż Sigmoid + BCELoss
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
 
 # Przygotowanie DataLoaderów
 train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
 # Pętla treningowa
-epochs = 10
+epochs = 15
 print("\nRozpoczynanie treningu...")
 for epoch in range(epochs):
     model.train()
@@ -137,70 +139,71 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-
     print(f"Epoka {epoch + 1}/{epochs}, Strata: {total_loss / len(train_loader):.4f}")
 
 # Ewaluacja modelu
+print("\n--- Ewaluacja modelu na zbiorze testowym ---")
 model.eval()
 with torch.no_grad():
     y_pred_logits = model(X_test_tensor)
-    y_pred = torch.sigmoid(y_pred_logits) > 0.5
-    accuracy = (y_pred.squeeze() == y_test_tensor.squeeze()).float().mean()
-    print(f"\nDokładność na zbiorze testowym: {accuracy.item():.4f}")
+    y_pred_prob = torch.sigmoid(y_pred_logits)
+    y_pred_labels = (y_pred_prob > 0.5).long()
 
-    # Przygotowanie danych do analizy SHAP
-    background_data = X_train[:100]  # Tło do obliczeń SHAP (reprezentatywna próbka)
-    test_sample = X_test[:50]  # Próbka do wyjaśnienia
+    y_test_np = y_test_tensor.cpu().numpy().astype(int)
+    y_pred_np = y_pred_labels.cpu().numpy().astype(int)
 
+    accuracy = accuracy_score(y_test_np, y_pred_np)
+    print(f"Dokładność (Accuracy): {accuracy:.4f}\n")
 
-    def predict_pytorch(data):
-        if data.ndim == 1:
-            data = data.reshape(1, -1)
+    print("Raport klasyfikacji:")
+    # Etykiety dla raportu: 0 -> Negatywny, 1 -> Pozytywny
+    target_names = ['Negatywny (0)', 'Pozytywny (1)']
+    print(classification_report(y_test_np, y_pred_np, target_names=target_names))
 
-        data_tensor = torch.tensor(data, dtype=torch.float32).to(device)
-        model.eval()
-        with torch.no_grad():
-            output = torch.sigmoid(model(data_tensor))
-
-        return output.cpu().numpy().flatten()
+print("\n--- Rozpoczynanie analizy SHAP ---")
+background_data = X_train[:100]
+test_sample = X_test[:50]
 
 
-    explainer = shap.KernelExplainer(predict_pytorch, background_data)
+def predict_pytorch(data):
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    data_tensor = torch.tensor(data, dtype=torch.float32).to(device)
+    model.eval()
+    with torch.no_grad():
+        output = torch.sigmoid(model(data_tensor))
+    return output.cpu().numpy().flatten()
 
-    print("\nObliczanie wartości SHAP (może to potrwać kilka minut)...")
-    shap_values = explainer.shap_values(test_sample)
-    print("Obliczanie zakończone.")
 
-    # Zmiana nazwy cech z indeksów na faktyczne słowa
-    feature_names = vectorizer.get_feature_names_out()
+explainer = shap.KernelExplainer(predict_pytorch, background_data)
 
-    shap.initjs()
+print("\nObliczanie wartości SHAP (może to potrwać kilka minut)...")
+shap_values = explainer.shap_values(test_sample)
+print("Obliczanie zakończone.")
 
-    if not os.path.exists("imgs"):
-        os.makedirs("imgs")
+feature_names = vectorizer.get_feature_names_out()
+shap.initjs()
 
-    # Wizualizacja 1: Summary Plot
-    print("\nGenerowanie wykresu podsumowującego SHAP (Summary Plot)...")
-    shap.summary_plot(shap_values, features=test_sample, feature_names=feature_names, show=False)
-    plt.title("Wykres podsumowujący SHAP")
-    plt.savefig("imgs/SHAP.png")
-    plt.close()
+if not os.path.exists("imgs"):
+    os.makedirs("imgs")
 
-    sample_index = 0
+# Wizualizacja 1: Summary Plot
+print("\nGenerowanie wykresu podsumowującego SHAP (Summary Plot)...")
+shap.summary_plot(shap_values, features=test_sample, feature_names=feature_names, show=False)
+plt.title("Wykres podsumowujący SHAP")
+plt.savefig("imgs/SHAP_summary_plot.png")
+plt.close()
+print("Wykres podsumowujący zapisany w 'imgs/SHAP_summary_plot.png'")
 
-    expected_value = explainer.expected_value
-    shap_values_sample = shap_values[sample_index, :]
-    features_sample = test_sample[sample_index, :]
-
-    # Wizualizacja 2: Force Plot
-    print("\nRysowanie wykresu force_plot...")
-    shap.force_plot(expected_value, shap_values_sample, features_sample, feature_names=feature_names)
-    print("\nGenerowanie wykresu sił SHAP (Force Plot) dla pierwszej próbki...")
-    force_plot_obj = shap.force_plot(
-        explainer.expected_value,
-        shap_values[sample_index, :],
-        test_sample[sample_index, :],
-        feature_names=feature_names,
-        show=False
-    )
-    shap.save_html("imgs/force_plot_output.html", force_plot_obj)
+# Wizualizacja 2: Force Plot
+print("\nGenerowanie wykresu sił SHAP (Force Plot) dla pierwszej próbki...")
+sample_index = 0
+force_plot_obj = shap.force_plot(
+    explainer.expected_value,
+    shap_values[sample_index, :],
+    test_sample[sample_index, :],
+    feature_names=feature_names,
+    show=False
+)
+shap.save_html("imgs/force_plot_output.html", force_plot_obj)
+print("Wykres sił zapisany w 'imgs/force_plot_output.html'")
